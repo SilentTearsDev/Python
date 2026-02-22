@@ -226,6 +226,6 @@ c.setFillColorRGB(0.45, 0.48, 0.55)
 c.drawString(M, footer_y - 2, "Megjegyzés: A fenti adatok alapján történik a rendezvény előkészítése.")
 c.restoreState()
 
-# Mentés
+# Mentésa
 c.save()
 print(f"\n✅ Elkészült: {filename}")
