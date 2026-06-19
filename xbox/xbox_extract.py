@@ -1,103 +1,205 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext
+from tkinter import filedialog, scrolledtext, messagebox
 import subprocess
 import threading
 import os
-import platform
+import shutil
 
-# Change this to where extract-xiso is located
-EXTRACT_XISO = "./extract-xiso"
-
-
-def open_folder(path):
-    if platform.system() == "Windows":
-        os.startfile(path)
-    elif platform.system() == "Darwin":
-        subprocess.run(["open", path])
-    else:
-        subprocess.run(["xdg-open", path])
+REPO_URL = "https://github.com/XboxDev/extract-xiso.git"
+REPO_DIR = "extract-xiso"
 
 
-def select_iso():
-    filename = filedialog.askopenfilename(
-        title="Select Xbox ISO",
-        filetypes=[("ISO Files", "*.iso"), ("All Files", "*.*")]
-    )
+class XboxExtractor:
 
-    if filename:
-        iso_path.delete(0, tk.END)
-        iso_path.insert(0, filename)
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Xbox ISO Extractor")
+        self.root.geometry("900x600")
 
+        top = tk.Frame(root)
+        top.pack(fill="x", padx=10, pady=10)
 
-def extract_game():
-    iso = iso_path.get()
+        self.iso_entry = tk.Entry(top)
+        self.iso_entry.pack(side="left", fill="x", expand=True)
 
-    if not iso:
-        messagebox.showerror("Error", "Please select an ISO file.")
-        return
+        browse_btn = tk.Button(
+            top,
+            text="Browse ISO",
+            command=self.browse_iso
+        )
+        browse_btn.pack(side="left", padx=5)
 
-    threading.Thread(
-        target=run_extract,
-        args=(iso,),
-        daemon=True
-    ).start()
+        extract_btn = tk.Button(
+            root,
+            text="Install + Extract",
+            command=self.start
+        )
+        extract_btn.pack(pady=5)
 
+        self.output = scrolledtext.ScrolledText(root)
+        self.output.pack(fill="both", expand=True, padx=10, pady=10)
 
-def run_extract(iso):
-    output_box.delete("1.0", tk.END)
+    def log(self, text):
+        self.output.insert(tk.END, text)
+        self.output.see(tk.END)
+        self.root.update_idletasks()
 
-    iso_name = os.path.splitext(os.path.basename(iso))[0]
-    export_folder = os.path.join(os.path.dirname(iso), iso_name)
+    def browse_iso(self):
+        filename = filedialog.askopenfilename(
+            title="Select Xbox ISO",
+            filetypes=[("ISO Files", "*.iso"), ("All Files", "*.*")]
+        )
 
-    cmd = [EXTRACT_XISO, "-x", iso]
+        if filename:
+            self.iso_entry.delete(0, tk.END)
+            self.iso_entry.insert(0, filename)
 
-    output_box.insert(tk.END, f"Running: {' '.join(cmd)}\n\n")
+    def run_command(self, cmd, cwd=None):
 
-    try:
+        self.log(f"\n$ {' '.join(cmd)}\n\n")
+
         process = subprocess.Popen(
             cmd,
+            cwd=cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True
         )
 
         for line in process.stdout:
-            output_box.insert(tk.END, line)
-            output_box.see(tk.END)
+            self.log(line)
 
         process.wait()
 
-        output_box.insert(
-            tk.END,
-            f"\nFinished!\nOpening folder:\n{export_folder}\n"
+        if process.returncode != 0:
+            raise RuntimeError(
+                f"Command failed: {' '.join(cmd)}"
+            )
+
+    def install_extract_xiso(self):
+
+        binary = os.path.join(
+            REPO_DIR,
+            "build",
+            "extract-xiso"
         )
 
-        if os.path.exists(export_folder):
-            open_folder(export_folder)
-        else:
-            open_folder(os.path.dirname(iso))
+        if os.path.exists(binary):
+            self.log("\nextract-xiso already installed.\n")
+            return binary
 
-    except Exception as e:
-        output_box.insert(tk.END, f"\nERROR:\n{e}\n")
+        self.log("\n=== INSTALLING extract-xiso ===\n")
+
+        if not os.path.exists(REPO_DIR):
+            self.run_command([
+                "git",
+                "clone",
+                REPO_URL
+            ])
+
+        build_dir = os.path.join(REPO_DIR, "build")
+
+        os.makedirs(build_dir, exist_ok=True)
+
+        self.run_command(
+            ["cmake", ".."],
+            cwd=build_dir
+        )
+
+        self.run_command(
+            ["make"],
+            cwd=build_dir
+        )
+
+        if not os.path.exists(binary):
+            raise RuntimeError(
+                "Build finished but binary not found."
+            )
+
+        return binary
+
+    def extract_iso(self, binary, iso_path):
+
+        self.log("\n=== EXTRACTING ISO ===\n")
+
+        iso_dir = os.path.dirname(iso_path)
+
+        self.run_command(
+            [binary, "-x", iso_path],
+            cwd=iso_dir
+        )
+
+        folder_name = os.path.splitext(
+            os.path.basename(iso_path)
+        )[0]
+
+        extracted_folder = os.path.join(
+            iso_dir,
+            folder_name
+        )
+
+        self.log("\n=== DONE ===\n")
+
+        if os.path.exists(extracted_folder):
+
+            self.log(
+                f"\nOpening:\n{extracted_folder}\n"
+            )
+
+            subprocess.Popen(
+                ["xdg-open", extracted_folder]
+            )
+
+        else:
+            self.log(
+                "\nCould not find extracted folder.\n"
+            )
+
+            subprocess.Popen(
+                ["xdg-open", iso_dir]
+            )
+
+    def worker(self):
+
+        try:
+
+            iso_path = self.iso_entry.get()
+
+            if not iso_path:
+                raise RuntimeError(
+                    "Please select an ISO first."
+                )
+
+            binary = self.install_extract_xiso()
+
+            self.extract_iso(
+                binary,
+                iso_path
+            )
+
+            messagebox.showinfo(
+                "Finished",
+                "Extraction completed!"
+            )
+
+        except Exception as e:
+
+            self.log(
+                f"\n\nERROR:\n{e}\n"
+            )
+
+            messagebox.showerror(
+                "Error",
+                str(e)
+            )
+
+    def start(self):
+        threading.Thread(
+            target=self.worker,
+            daemon=True
+        ).start()
 
 
 root = tk.Tk()
-root.title("Xbox ISO Extractor")
-root.geometry("800x500")
-
-frame = tk.Frame(root)
-frame.pack(fill="x", padx=10, pady=10)
-
-iso_path = tk.Entry(frame)
-iso_path.pack(side="left", fill="x", expand=True)
-
-browse_btn = tk.Button(frame, text="Browse ISO", command=select_iso)
-browse_btn.pack(side="left", padx=5)
-
-extract_btn = tk.Button(root, text="Extract", command=extract_game)
-extract_btn.pack(pady=5)
-
-output_box = scrolledtext.ScrolledText(root)
-output_box.pack(fill="both", expand=True, padx=10, pady=10)
-
+app = XboxExtractor(root)
 root.mainloop()
