@@ -86,7 +86,7 @@ class XboxExtractor:
 
         if os.path.exists(binary):
             self.log("\nextract-xiso already installed.\n")
-            return binary
+            return os.path.abspath(binary)
 
         self.log("\n=== INSTALLING extract-xiso ===\n")
 
@@ -113,51 +113,69 @@ class XboxExtractor:
 
         if not os.path.exists(binary):
             raise RuntimeError(
-                "Build finished but binary not found."
+                "Build completed but extract-xiso was not found."
             )
 
-        return binary
+        return os.path.abspath(binary)
 
     def extract_iso(self, binary, iso_path):
 
         self.log("\n=== EXTRACTING ISO ===\n")
 
         iso_dir = os.path.dirname(iso_path)
+        iso_name = os.path.splitext(
+            os.path.basename(iso_path)
+        )[0]
+
+        extracted_folder = os.path.join(
+            iso_dir,
+            f"{iso_name} [Extracted]"
+        )
+
+        os.makedirs(
+            extracted_folder,
+            exist_ok=True
+        )
+
+        self.log(
+            f"\nOutput folder:\n{extracted_folder}\n"
+        )
+
+        before = set(os.listdir(iso_dir))
 
         self.run_command(
             [binary, "-x", iso_path],
             cwd=iso_dir
         )
 
-        folder_name = os.path.splitext(
-            os.path.basename(iso_path)
-        )[0]
+        after = set(os.listdir(iso_dir))
+        new_items = after - before
 
-        extracted_folder = os.path.join(
-            iso_dir,
-            folder_name
-        )
+        for item in new_items:
+
+            src = os.path.join(
+                iso_dir,
+                item
+            )
+
+            if src == extracted_folder:
+                continue
+
+            try:
+                shutil.move(
+                    src,
+                    extracted_folder
+                )
+            except Exception as e:
+                self.log(
+                    f"Could not move {item}: {e}\n"
+                )
 
         self.log("\n=== DONE ===\n")
 
-        if os.path.exists(extracted_folder):
-
-            self.log(
-                f"\nOpening:\n{extracted_folder}\n"
-            )
-
-            subprocess.Popen(
-                ["xdg-open", extracted_folder]
-            )
-
-        else:
-            self.log(
-                "\nCould not find extracted folder.\n"
-            )
-
-            subprocess.Popen(
-                ["xdg-open", iso_dir]
-            )
+        subprocess.Popen(
+            ["xdg-open", extracted_folder]
+        )
 
     def worker(self):
 
